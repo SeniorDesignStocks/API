@@ -1,6 +1,8 @@
 from flask import Flask, request
 from flask_restful import Resource, Api
 import pyodbc
+import bcrypt
+import json
 
 cnxn = pyodbc.connect('DRIVER={SQL Server};SERVER=JON;DATABASE=stocksSimplified;')
 #print("Connected to database.")
@@ -54,60 +56,65 @@ class test(Resource):
 
 class user(Resource):
 	def get(self):
-		userSQL = "SELECT UserID, UserName, Password, Email FROM Users;"
+		inputUsername = request.args.get('username')
+		inputPassword = request.args.get('password')
+
+		userSQL = "SELECT UserName, Password, Salt FROM Users;"
 		cursor = cnxn.cursor()
 		cursor.execute(userSQL)
 		user = cursor.fetchall()
 		userList = []
+
 		for i in user:
-			userList.append([int(i[0]), i[1], i[2], str(i[3])])
-		userJson = []
+			userList.append([i[0], i[1], str(i[2])])
 		for i in userList:
-			userJson.append({"UserID": i[0], "UserName": i[1], "Password": i[2], "Email": i[3]})
-		return userJson
+			if i[0] == inputUsername:
+				if bcrypt.checkpw(inputPassword.encode('utf-8'), i[1]):
+					return "Login Successful"
+		
+		return "Invalid Username/Password"
 	def put(self):
-		inputUserId = str(request.form['userid'])
-		inputUsername = str(request.form['username'])
-		inputPassword = str(request.form['password'])
-		inputEmail = str(request.form['email'])
+		inputUsername = request.args.get('username')
+		inputPassword = request.args.get('password')
+		inputEmail = request.args.get('email')
 
+		userSQL = "SELECT UserID, UserName, Password, Email, Salt FROM Users;"
 		cursor = cnxn.cursor()
-		cursor.execute("INSERT INTO Users (UserID, UserName, Password, Email) VALUES (?, ?, ?, ?);", inputUserId, inputUsername, inputPassword, inputEmail)
+		cursor.execute(userSQL)
+		user = cursor.fetchall()
+		userList = []
+		userid = 1
+		for i in user:
+			userid += 1
+			userList.append([i[0], i[1], i[2], i[3], i[4]])
+
+		for i in userList:
+			if i[1] == inputUsername:
+				return "User already exists"
+		
+		salt = bcrypt.gensalt()
+		hashedpw = bcrypt.hashpw(inputPassword.encode('utf-8'), salt)
+
+		cursor.execute("INSERT INTO Users (UserID, UserName, Password, Email, Salt) VALUES (?, ?, ?, ?, ?)", userid, inputUsername, hashedpw, inputEmail, salt)
 		cursor.commit()
+		return "Account successfully created"
 
-		return {"UserId": inputUserId, "Username": inputUsername, "Password": inputPassword, "Email": inputEmail}
-	def delete(self):
-		inputUserId = str(request.form['userid'])
-		inputUsername = str(request.form['username'])
-		inputPassword = str(request.form['password'])
-		inputEmail = str(request.form['email'])
-
-		cursor = cnxn.cursor()
-		cursor.execute("DELETE FROM Users WHERE UserID = ? AND UserName = ? AND Password = ? AND Email = ?;", inputUserId, inputUsername, inputPassword, inputEmail)
-		cursor.commit()
-
-		return {"UserId": inputUserId, "Username": inputUsername, "Password": inputPassword, "Email": inputEmail}
-class individualUser(Resource):
-	def get(self, userid):
-		followedSQL = "SELECT UserID, UserName, Password, Email FROM Users;"
+class validateUser(Resource):
+	def get(self, username):
+		followedSQL = "SELECT UserName FROM Users;"
 		cursor = cnxn.cursor()
 		cursor.execute(followedSQL)
 		followed = cursor.fetchall()
 		followedList = []
 		for i in followed:
-			followedList.append([int(i[0]), str(i[1]), str(i[2]), str(i[3])])
-		userList = []
+			followedList.append([str(i[0])])
 		for i in followedList:
-			if i[0] == userid:
-				userList.append({"UserID": i[0], "UserName": i[1], "Password": i[2], "Email": i[3]})
-		if userList:
-			return userList
+			if i[0] == username:
+				return "User exists"
 		return "User does not exist"
-	def put(self, userid):
-		return "TODO"
 
 class followedStocks(Resource):
-	def get(self):
+	def get(self, username):
 		followedSQL = "SELECT Symbol, UserID FROM Followed_Stocks;"
 		cursor = cnxn.cursor()
 		cursor.execute(followedSQL)
@@ -115,48 +122,62 @@ class followedStocks(Resource):
 		followedList = []
 		for i in followed:
 			followedList.append([str(i[0].upper()), int(i[1])])
-		followedJson = []
-		for i in followedList:
-			followedJson.append({"Symbol": i[0], "UserID": i[1]})
-		return followedJson
-	def put(self):
-		inputUserId = str(request.form['userid'])
-		inputSymbol = str(request.form['symbol']).upper()
+		favList = []
 
-		cursor = cnxn.cursor()
-		cursor.execute("INSERT INTO Followed_Stocks (UserID, Symbol) VALUES (?, ?);", inputUserId, inputSymbol)
-		cursor.commit()
-
-		return {"Symbol": inputSymbol, "UserId": inputUserId}
-	def delete(self):
-		inputUserId = str(request.form['userid'])
-		inputSymbol = str(request.form['symbol']).upper()
-
-		cursor = cnxn.cursor()
-		cursor.execute("DELETE FROM Followed_Stocks WHERE UserID = ? AND Symbol = ?;", inputUserId, inputSymbol)
-		cursor.commit()
-
-		return {"Symbol": inputSymbol, "UserId": inputUserId}
-class individualFollowedStocks(Resource):
-	def get(self, userid):
-		followedSQL = "SELECT Symbol, UserID FROM Followed_Stocks;"
-		cursor = cnxn.cursor()
-		cursor.execute(followedSQL)
-		followed = cursor.fetchall()
-		followedList = []
-		for i in followed:
-			followedList.append([str(i[0].upper()), int(i[1])])
+		cursor.execute("SELECT UserID, UserName FROM Users;")
+		user = cursor.fetchall()
 		userList = []
+		userid = 0
+		for i in user:
+			userList.append([i[0], str(i[1])])
+			if str(i[1]) == username:
+				userid = i[0]
+
+
 		for i in followedList:
 			if i[1] == userid:
-				userList.append({"Symbol": i[0], "UserID": i[1]})
+				favList.append({"Symbol": i[0], "UserName": username})
 			#stockJson.append({"Symbol": i[0], "UserID": i[1]})
 			#print(i)
-		if userList:
-			return userList
+		if favList:
+			return favList
 		return "User does not have any followed stocks"
-	def put(self, userid):
-		return "TODO"
+	def put(self, username):
+		inputSymbol = str(request.args.get('symbol')).upper()
+
+		cursor = cnxn.cursor()
+		cursor.execute("SELECT UserID, UserName FROM Users;")
+		user = cursor.fetchall()
+		userList = []
+		userid = 0
+		for i in user:
+			userList.append([i[0], str(i[1])])
+			if str(i[1]) == username:
+				userid = i[0]
+
+		cursor = cnxn.cursor()
+		cursor.execute("INSERT INTO Followed_Stocks (UserID, Symbol) VALUES (?, ?);", userid, inputSymbol)
+		cursor.commit()
+
+		return {"Symbol": inputSymbol, "Username": username}
+	def delete(self, username):
+		inputSymbol = str(request.args.get('symbol')).upper()
+
+		cursor = cnxn.cursor()
+		cursor.execute("SELECT UserID, UserName FROM Users;")
+		user = cursor.fetchall()
+		userList = []
+		userid = 0
+		for i in user:
+			userList.append([i[0], str(i[1])])
+			if str(i[1]) == username:
+				userid = i[0]
+
+		cursor = cnxn.cursor()
+		cursor.execute("DELETE FROM Followed_Stocks WHERE UserID = ? AND Symbol = ?;", userid, inputSymbol)
+		cursor.commit()
+
+		return {"Symbol": inputSymbol, "Username": username}
 
 class stocks(Resource):
 	def get(self):
@@ -698,23 +719,23 @@ class stocksIndividual(Resource):
 		return "Stock not in database"
 	def put(self, stock):
 		#Does not update Symbol, Name, Sector or Industry
-		#inputSymbol = request.form['Symbol']
-		inputPriceToEarnings = str(request.form['pricetoearnings'])
-		inputPriceToEarningsGrowth = str(request.form['pricetoearningsgrowth'])
-		inputPriceToSales = str(request.form['pricetosales'])
-		inputPriceToCashFlow = str(request.form['pricetocashflow'])
-		inputPriceToBookValue = str(request.form['pricetobookvalue'])
-		inputDebtToEquity = str(request.form['debttoequity'])
-		inputReturnOnEquity = str(request.form['returnonequity'])
-		inputReturnOnAssets = str(request.form['returnonassets'])
-		inputProfitMargin = str(request.form['profitmargin'])
-		inputDividendPayout = str(request.form['dividendpayout'])
-		inputCurrentAssetsToLiabilities = str(request.form['currentassetstoliabilities'])
-		inputQuick = str(request.form['quick'])
-		inputInterestCoverage = str(request.form['interestCoverage'])
-		inputAssetTurnover = str(request.form['assetturnover'])
-		inputInventoryTurnover = str(request.form['inventoryturnover'])
-		inputDividendYield = str(request.form['dividendyield'])
+		#inputSymbol = request.args.get('Symbol')
+		inputPriceToEarnings = str(request.args.get('pricetoearnings'))
+		inputPriceToEarningsGrowth = str(request.args.get('pricetoearningsgrowth'))
+		inputPriceToSales = str(request.args.get('pricetosales'))
+		inputPriceToCashFlow = str(request.args.get('pricetocashflow'))
+		inputPriceToBookValue = str(request.args.get('pricetobookvalue'))
+		inputDebtToEquity = str(request.args.get('debttoequity'))
+		inputReturnOnEquity = str(request.args.get('returnonequity'))
+		inputReturnOnAssets = str(request.args.get('returnonassets'))
+		inputProfitMargin = str(request.args.get('profitmargin'))
+		inputDividendPayout = str(request.args.get('dividendpayout'))
+		inputCurrentAssetsToLiabilities = str(request.args.get('currentassetstoliabilities'))
+		inputQuick = str(request.args.get('quick'))
+		inputInterestCoverage = str(request.args.get('interestCoverage'))
+		inputAssetTurnover = str(request.args.get('assetturnover'))
+		inputInventoryTurnover = str(request.args.get('inventoryturnover'))
+		inputDividendYield = str(request.args.get('dividendyield'))
 		if inputPriceToEarnings == "":
 			inputPriceToEarnings = None
 		if inputPriceToEarningsGrowth == "":
@@ -955,8 +976,8 @@ class stockIndividualName(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputName = str(request.form['name'])
+		#inputSymbol = request.args.get('Symbol']
+		inputName = str(request.args.get('name'))
 		if inputName == "":
 			inputName = None
 
@@ -1055,8 +1076,8 @@ class stockIndividualPriceToEarnings(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputPriceToEarnings = str(request.form['pricetoearnings'])
+		#inputSymbol = request.args.get('Symbol')
+		inputPriceToEarnings = str(request.args.get('pricetoearnings'))
 		if inputPriceToEarnings == "":
 			inputPriceToEarnings = None
 
@@ -1155,8 +1176,8 @@ class stockIndividualPriceToEarningsGrowth(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputPriceToEarningsGrowth = str(request.form['pricetoearningsgrowth'])
+		#inputSymbol = request.args.get('Symbol']
+		inputPriceToEarningsGrowth = str(request.args.get('pricetoearningsgrowth'))
 		if inputPriceToEarningsGrowth == "":
 			inputPriceToEarningsGrowth = None
 
@@ -1255,8 +1276,8 @@ class stockIndividualPriceToSales(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputPriceToSales = str(request.form['pricetosales'])
+		#inputSymbol = request.args.get('Symbol']
+		inputPriceToSales = str(request.args.get('pricetosales'))
 		if inputPriceToSales == "":
 			inputPriceToSales = None
 
@@ -1355,8 +1376,8 @@ class stockIndividualPriceToCashFlow(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputPriceToCashFlow = str(request.form['pricetocashflow'])
+		#inputSymbol = request.args.get('Symbol']
+		inputPriceToCashFlow = str(request.args.get('pricetocashflow'))
 		if inputPriceToCashFlow == "":
 			inputPriceToCashFlow = None
 
@@ -1455,8 +1476,8 @@ class stockIndividualPriceToBookValue(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputPriceToBookValue = str(request.form['pricetobookvalue'])
+		#inputSymbol = request.args.get('Symbol']
+		inputPriceToBookValue = str(request.args.get('pricetobookvalue'))
 		if inputPriceToBookValue == "":
 			inputPriceToBookValue = None
 
@@ -1555,8 +1576,8 @@ class stockIndividualDebtToEquity(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputDebtToEquity = str(request.form['debttoequity'])
+		#inputSymbol = request.args.get('Symbol']
+		inputDebtToEquity = str(request.args.get('debttoequity'))
 		if inputDebtToEquity == "":
 			inputDebtToEquity = None
 
@@ -1655,8 +1676,8 @@ class stockIndividualReturnOnEquity(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputReturnOnEquity = str(request.form['returnonequity'])
+		#inputSymbol = request.args.get('Symbol']
+		inputReturnOnEquity = str(request.args.get('returnonequity'))
 		if inputReturnOnEquity == "":
 			inputReturnOnEquity = None
 
@@ -1755,8 +1776,8 @@ class stockIndividualReturnOnAssets(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputReturnOnAssets = str(request.form['returnonassets'])
+		#inputSymbol = request.args.get('Symbol']
+		inputReturnOnAssets = str(request.args.get('returnonassets'))
 		if inputReturnOnAssets == "":
 			inputReturnOnAssets = None
 
@@ -1855,8 +1876,8 @@ class stockIndividualProfitMargin(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputProfitMargin = str(request.form['profitmargin'])
+		#inputSymbol = request.args.get('Symbol']
+		inputProfitMargin = str(request.args.get('profitmargin'))
 		if inputProfitMargin == "":
 			inputProfitMargin = None
 
@@ -1955,8 +1976,8 @@ class stockIndividualDividendPayout(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputDividendPayout = str(request.form['dividendpayout'])
+		#inputSymbol = request.args.get('Symbol']
+		inputDividendPayout = str(request.args.get('dividendpayout'))
 		if inputDividendPayout == "":
 			inputDividendPayout = None
 
@@ -2055,8 +2076,8 @@ class stockIndividualCurrentAssetsToLiabilities(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputCurrentAssetsToLiabilities = str(request.form['currentassetstoliabilities'])
+		#inputSymbol = request.args.get('Symbol']
+		inputCurrentAssetsToLiabilities = str(request.args.get('currentassetstoliabilities'))
 		if inputCurrentAssetsToLiabilities == "":
 			inputCurrentAssetsToLiabilities = None
 
@@ -2155,8 +2176,8 @@ class stockIndividualQuick(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputQuick = str(request.form['quick'])
+		#inputSymbol = request.args.get('Symbol']
+		inputQuick = str(request.args.get('quick'))
 		if inputQuick == "":
 			inputQuick = None
 
@@ -2255,8 +2276,8 @@ class stockIndividualInterestCoverage(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputinterestCoverage = str(request.form['interestCoverage'])
+		#inputSymbol = request.args.get('Symbol']
+		inputinterestCoverage = str(request.args.get('interestCoverage'))
 		if inputinterestCoverage == "":
 			inputinterestCoverage = None
 
@@ -2355,8 +2376,8 @@ class stockIndividualAssetTurnover(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputassetTurnover = str(request.form['assetturnover'])
+		#inputSymbol = request.args.get('Symbol']
+		inputassetTurnover = str(request.args.get('assetturnover'))
 		if inputassetTurnover == "":
 			inputassetTurnover = None
 
@@ -2455,8 +2476,8 @@ class stockIndividualInventoryTurnover(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputinventoryTurnover = str(request.form['inventoryturnover'])
+		#inputSymbol = request.args.get('Symbol']
+		inputinventoryTurnover = str(request.args.get('inventoryturnover'))
 		if inputinventoryTurnover == "":
 			inputinventoryTurnover = None
 
@@ -2555,8 +2576,8 @@ class stockIndividualDividendYield(Resource):
 
 		return "Stock does not exist in database"
 	def put(self, stock):
-		#inputSymbol = request.form['Symbol']
-		inputDividendYield = str(request.form['dividendyield'])
+		#inputSymbol = request.args.get('Symbol']
+		inputDividendYield = str(request.args.get('dividendyield'))
 		if inputDividendYield == "":
 			inputDividendYield = None
 
@@ -2587,60 +2608,55 @@ class stockIndividualDividendYield(Resource):
 		return "Stock does not exist in database"
 
 class daily(Resource):
-	def get(self):
-		dailySQL = "SELECT Symbol, CloseDate, ClosePrice, TransactionID FROM Daily_Stocks;"
+	def get(self, stock):
+		dailySQL = "SELECT Symbol, CloseDate, ClosePrice FROM Daily_Stocks;"
 		cursor = cnxn.cursor()
 		cursor.execute(dailySQL)
 		daily = cursor.fetchall()
 		dailyList = []
 		for i in daily:
-			dailyList.append([str(i[0].upper()), int(i[1]), i[2], i[3]])
+			if str(i[0].upper()) == stock.upper():
+				dailyList.append({'Close Date': int(i[1]), 'Close Price': i[2]})
+		test = str(dailyList)
+		test = test.replace("[", "{")
+		test = test.replace("]", "}")
+		output = {"Symbol": stock.upper(),"Historical": test}
+		
+		return output
+	def put(self, stock):
+		inputCloseDate = request.args.get('closedate')
+		inputClosePrice = request.args.get('closeprice')
+		inputStock = stock.upper()
+		inputTransactionID = 1 #Create a Transaction ID somehow
+
+		cursor = cnxn.cursor()
+		cursor.execute("INSERT INTO Daily_Stocks (Symbol, CloseDate, ClosePrice) VALUES (?, ?, ?);", inputStock, int(inputCloseDate), float(inputClosePrice))
+		cursor.commit()
+
+		return {"Symbol": inputStock, "Close Date": inputCloseDate, "Close Price": inputClosePrice}
+	def delete(self, stock):
+		inputCloseDate = request.args.get('closedate')
+		inputClosePrice = request.args.get('closeprice')
+		inputStock = stock.upper()
+
+		cursor = cnxn.cursor()
+		cursor.execute("DELETE FROM Daily_Stocks WHERE Symbol = ? AND CloseDate = ? AND ClosePrice = ?;", inputStock, int(inputCloseDate), float(inputClosePrice))
+		cursor.commit()
+
+		return {"Symbol": inputStock, "Close Date": inputCloseDate, "Close Price": inputClosePrice}
+class chunkDaily(Resource):
+	def get(self):
+		dailySQL = "SELECT Symbol, CloseDate, ClosePrice FROM Daily_Stocks;"
+		cursor = cnxn.cursor()
+		cursor.execute(dailySQL)
+		daily = cursor.fetchall()
+		dailyList = []
+		for i in daily:
+			dailyList.append([str(i[0].upper()), int(i[1]), i[2]])
 		dailyJson = []
 		for i in dailyList:
-			dailyJson.append({"Symbol": i[0], "Close Date": i[1], "Close Price": i[2], "Transaction ID": i[3]})
+			dailyJson.append({"Symbol": i[0], "Close Date": i[1], "Close Price": i[2]})
 		return dailyJson
-	def put(self):
-		inputSymbol = str(request.form['symbol']).upper()
-		inputCloseDate = request.form['closedate']
-		inputClosePrice = request.form['closeprice']
-		inputTransactionID = request.form['transactionid']
-
-		cursor = cnxn.cursor()
-		cursor.execute("INSERT INTO Daily_Stocks (Symbol, CloseDate, ClosePrice, TransactionID) VALUES (?, ?, ?, ?);", inputSymbol, inputCloseDate, inputClosePrice, inputTransactionID)
-		cursor.commit()
-
-		return {"Symbol": inputSymbol, "UserId": inputUserId}
-	def delete(self):
-		inputSymbol = str(request.form['symbol']).upper()
-		inputCloseDate = request.form['closedate']
-		inputClosePrice = request.form['closeprice']
-		inputTransactionID = request.form['transactionid']
-
-		cursor = cnxn.cursor()
-		cursor.execute("DELETE FROM Daily_Stocks WHERE Symbol = ? AND CloseDate = ? AND ClosePrice = ? AND TransactionID = ?;", inputSymbol, inputCloseDate, inputClosePrice, inputTransactionID)
-		cursor.commit()
-
-		return {"Symbol": inputSymbol, "UserId": inputUserId}
-class individualDaily(Resource):
-	def get(self, stock):
-		dailySQL = "SELECT Symbol, CloseDate, ClosePrice, TransactionID FROM Daily_Stocks;"
-		cursor = cnxn.cursor()
-		cursor.execute(dailySQL)
-		daily = cursor.fetchall()
-		dailyList = []
-		for i in daily:
-			dailyList.append([str(i[0].upper()), int(i[1]), i[2], i[3]])
-		userList = []
-		for i in dailyList:
-			if i[1] == userid:
-				userList.append({"Symbol": i[0], "Close Date": i[1], "Close Price": i[2], "Transaction ID": i[3]})
-		if userList:
-			return userList
-		return "No stock data exists for the given stock"
-
-	def put(self, stock):
-		return "TODO"
-
 
 class prediction(Resource):
 	def get(self):
@@ -2656,10 +2672,10 @@ class prediction(Resource):
 			predictJson.append({"Symbol": i[0], "Prediction Short": i[1], "Prediction Medium": i[2], "Prediction Long": i[3]})
 		return predictJson
 	def put(self):
-		inputSymbol = str(request.form['symbol']).upper()
-		inputShort = request.form['short']
-		inputMedium = request.form['medium']
-		inputLong = request.form['long']
+		inputSymbol = str(request.args.get('symbol')).upper()
+		inputShort = request.args.get('short')
+		inputMedium = request.args.get('medium')
+		inputLong = request.args.get('long')
 
 		cursor = cnxn.cursor()
 		cursor.execute("INSERT INTO Prediction_Cache (Symbol, Prediction_Short, Prediction_Medium, Prediction_Long) VALUES (?, ?, ?, ?);", inputSymbol, inputShort, inputMedium, inputLong)
@@ -2667,10 +2683,10 @@ class prediction(Resource):
 
 		return {"Symbol": inputSymbol, "UserId": inputUserId}
 	def delete(self):
-		inputSymbol = str(request.form['symbol']).upper()
-		inputShort = request.form['short']
-		inputMedium = request.form['medium']
-		inputLong = request.form['long']
+		inputSymbol = str(request.args.get('symbol')).upper()
+		inputShort = request.args.get('short')
+		inputMedium = request.args.get('medium')
+		inputLong = request.args.get('long')
 
 		cursor = cnxn.cursor()
 		cursor.execute("DELETE FROM Prediction_Cache WHERE Symbol = ? AND CloseDate = ? AND ClosePrice = ? AND TransactionID = ?;", inputSymbol, inputShort, inputMedium, inputLong)
@@ -2692,15 +2708,20 @@ class individualPrediction(Resource):
 		if userList:
 			return userList
 		return "No stock data exists for the given stock"
-
 	def put(self, stock):
 		return "TODO"
 
-api.add_resource(test, '/', '/test','/test/')
-#api.add_resource(user, '/user')
+class news(Resource):
+	#This class will handle implement the code Cory wrote to pull News data
+	def get(self):
+		return "TODO"
 
-api.add_resource(followedStocks, '/favorite', '/favorite/')
-api.add_resource(individualFollowedStocks, '/favorite/<int:userid>', '/favorite/<int:userid>/')
+api.add_resource(test, '/', '/test','/test/')
+
+api.add_resource(user, '/user/login', '/user/login/')
+api.add_resource(validateUser, '/user/<string:username>', '/user/<string:username>/')
+
+api.add_resource(followedStocks, '/favorite/<string:username>', '/favorite/<string:username>/')
 
 api.add_resource(stocks, '/stock','/stock/')
 api.add_resource(stocksIndividual, '/stock/<string:stock>', '/stock/<string:stock>/')
@@ -2741,12 +2762,15 @@ api.add_resource(stockIndividualInventoryTurnover, '/stock/inventoryturnover/<st
 api.add_resource(stockDividendYield, '/stock/dividendyield', '/stock/dividendyield/')
 api.add_resource(stockIndividualDividendYield, '/stock/dividendyield/<string:stock>', '/stock/dividendyield/<string:stock>/')
 
-api.add_resource(daily, '/daily', '/daily/')
-api.add_resource(individualDaily, '/daily/<string:stock>', '/daily/<string:stock>/')
-api.add_resource(prediction, '/predict', '/predict/', '/prediction', '/prediction/')
-api.add_resource(individualPrediction, '/predict/<string:stock>', '/predict/<string:stock>/', '/prediction/<string:stock>', '/prediction/<string:stock>/')
+api.add_resource(daily, '/daily/<string:stock>', '/daily/<string:stock>/')
+#api.add_resource(chunkDaily, '/daily', '/daily/')
+
+#api.add_resource(prediction, '/predict', '/predict/', '/prediction', '/prediction/')
+#api.add_resource(individualPrediction, '/predict/<string:stock>', '/predict/<string:stock>/', '/prediction/<string:stock>', '/prediction/<string:stock>/')
+
+#api.add_resource(news, '/news', '/news/')
 
 
 if __name__ == '__main__':
-	app.run(host='0.0.0.0', port=80, debug=False)
+	app.run(host='0.0.0.0', port=4567, debug=False)
 
