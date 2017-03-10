@@ -1,13 +1,16 @@
 from flask import Flask, request
 from flask_restful import Resource, Api
+from flask_cors import CORS, cross_origin
 import pyodbc
 import bcrypt
 import json
+import arrow
 
 cnxn = pyodbc.connect('DRIVER={SQL Server};SERVER=JON;DATABASE=stocksSimplified;')
 #print("Connected to database.")
 
 app = Flask(__name__)
+CORS(app)
 api = Api(app)
 
 #TODO:
@@ -2694,19 +2697,29 @@ class prediction(Resource):
 
 class individualPrediction(Resource):
 	def get(self, stock):
-		predictSQL = "SELECT Symbol, Prediction_Short, Prediction_Medium, Prediction_Long FROM Prediction_Cache;"
+		#Calls the prediction data for a given stock
+		predictSQL = "SELECT Symbol, Prediction_Short, Prediction_Medium, Prediction_Long, Prediction_Date FROM Prediction_Cache;"
 		cursor = cnxn.cursor()
 		cursor.execute(predictSQL)
 		predict = cursor.fetchall()
 		predictList = []
 		for i in predict:
-			predictList.append([str(i[0].upper()), i[1], i[2], i[3]])
-		userList = []
-		for i in predictList:
-			if i[1] == userid:
-				userList.append({"Symbol": i[0], "Prediction Short": i[1], "Prediction Medium": i[2], "Prediction Long": i[3]})
-		if userList:
-			return userList
+			if str(i[0].upper()) == stock.upper():
+				predictList.append({"Symbol": i[0], 'Prediction Short': i[1], 'Prediction Medium': i[2], 'Prediction Long': i[3], 'Prediction Date': i[4]})
+		if predictList:
+			#Check the date and if it isn't today's date, run the prediction algorithm
+			#dateToday = arrow.now().format('YYYYMMDD')
+			#if predictList['Prediction Date'] == dateToday:
+				#predictList['Prediction Short'] = 1            #Calls david's code to get this
+				#predictList['Prediction Medium'] = 2           #Calls david's code to get this
+				#predictList['Prediction Long'] = 3             #Calls david's code to get this
+				#predictList['Prediction Date'] = dateToday
+
+				#cursor.execute("UPDATE Prediction_Cache SET Prediction_Short = ?, Prediction_Medium = ?, Prediction_Long = ?, Prediction_Date = ? WHERE Symbol = ?", predictList['Prediction Short'], predictList['Prediction Medium'], predictList['Prediction Long'], predictList['Prediction Date'], predictList['Symbol'])
+				#cursor.commit()
+			
+			return predictList
+
 		return "No stock data exists for the given stock"
 	def put(self, stock):
 		return "TODO"
@@ -2766,7 +2779,7 @@ api.add_resource(daily, '/daily/<string:stock>', '/daily/<string:stock>/')
 #api.add_resource(chunkDaily, '/daily', '/daily/')
 
 #api.add_resource(prediction, '/predict', '/predict/', '/prediction', '/prediction/')
-#api.add_resource(individualPrediction, '/predict/<string:stock>', '/predict/<string:stock>/', '/prediction/<string:stock>', '/prediction/<string:stock>/')
+api.add_resource(individualPrediction, '/predict/<string:stock>', '/predict/<string:stock>/', '/prediction/<string:stock>', '/prediction/<string:stock>/')
 
 #api.add_resource(news, '/news', '/news/')
 
